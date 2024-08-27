@@ -8,7 +8,7 @@ VIRUSTOTAL_API_KEYS = ["x", "x", "x"]
 ABUSEIPDB_API_KEY = "x"
 VIRUSTOTAL_API_URL = "https://www.virustotal.com/api/v3/ip_addresses/{}"
 ABUSEIPDB_API_URL = "https://api.abuseipdb.com/api/v2/check"
-RATELIMIT_DELAY = 8
+RATELIMIT_DELAY = 15 # ADJUST AS NEEDED
 
 def get_virus_total_report(ip_address, api_key):
     headers = {"x-apikey": api_key, "accept": "application/json"}
