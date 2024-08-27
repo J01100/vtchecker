@@ -1,15 +1,14 @@
 import requests
 import csv
 import time
+import argparse
 from tqdm import tqdm
 
 VIRUSTOTAL_API_KEYS = ["x", "x", "x"]
 ABUSEIPDB_API_KEY = "x"
-INPUT_FILE = "ips-input.txt"
-OUTPUT_FILE = "ips-output.csv"
 VIRUSTOTAL_API_URL = "https://www.virustotal.com/api/v3/ip_addresses/{}"
 ABUSEIPDB_API_URL = "https://api.abuseipdb.com/api/v2/check"
-RATELIMIT_DELAY = 8
+RATELIMIT_DELAY = 15  # ADJUST AS NEEDED
 
 
 def get_virus_total_report(ip_address, api_key):
@@ -30,8 +29,8 @@ def get_abuseipdb_report(ip_address):
     return None
 
 
-def main():
-    with open(INPUT_FILE, "r") as infile:
+def main(input_file, output_file):
+    with open(input_file, "r") as infile:
         ip_addresses = infile.read().splitlines()
 
     results = []
@@ -40,7 +39,6 @@ def main():
     for index, ip_address in enumerate(
         tqdm(ip_addresses, desc="Processing IP addresses")
     ):
-        # Rotate API keys using modulo
         api_key = VIRUSTOTAL_API_KEYS[index % num_keys]
         vt_result = get_virus_total_report(ip_address, api_key)
         abuseipdb_result = get_abuseipdb_report(ip_address)
@@ -66,10 +64,9 @@ def main():
 
         results.append([ip_address, asn, hits, usage_type, isp, country, domain])
 
-        # Sleep to ensure we stay within rate limits
         time.sleep(RATELIMIT_DELAY)
 
-    with open(OUTPUT_FILE, "w", newline="") as outfile:
+    with open(output_file, "w", newline="") as outfile:
         writer = csv.writer(outfile)
         writer.writerow(
             ["IP Address", "ASN", "Hits", "Usage Type", "ISP", "Country", "Domain"]
@@ -78,4 +75,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Fetch and process IP address reports from VirusTotal and AbuseIPDB."
+    )
+    parser.add_argument(
+        "-in",
+        "--input",
+        required=True,
+        help="Path to the input file containing IP addresses.",
+    )
+    parser.add_argument(
+        "-out", "--output", required=True, help="Path to the output CSV file."
+    )
+    args = parser.parse_args()
+
+    main(args.input, args.output)
