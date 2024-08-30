@@ -1,91 +1,67 @@
-import requests
+import argparse
+import hashlib
 import csv
 import time
-import argparse
+import requests
 from tqdm import tqdm
 
-VIRUSTOTAL_API_KEYS = ["x", "x", "x"]
-ABUSEIPDB_API_KEY = "x"
-VIRUSTOTAL_API_URL = "https://www.virustotal.com/api/v3/ip_addresses/{}"
-ABUSEIPDB_API_URL = "https://api.abuseipdb.com/api/v2/check"
-RATELIMIT_DELAY = 15 # ADJUST AS NEEDED
+API_KEYS = ['x', 'x', 'x']
+API_URL = 'https://www.virustotal.com/api/v3/files/{}'
+DELAY_BETWEEN_REQUESTS = 6 # you can change me to 6 when you have 3 api keys
 
-def get_virus_total_report(ip_address, api_key):
-    headers = {"x-apikey": api_key, "accept": "application/json"}
-    url = VIRUSTOTAL_API_URL.format(ip_address)
+def get_sha256_from_string(hash_str):
+    try:
+        # Check if the string is already a valid hex digest (SHA256 format)
+        int(hash_str, 16)  # Try converting to integer (base 16)
+        return hash_str  # If no exception, it's likely a valid SHA256 hash
+    except ValueError:
+        # If conversion fails, assume it's MD5 or another format
+        return hashlib.sha256(hash_str.encode()).hexdigest()
+
+def get_virus_total_report(file_id, api_key):
+    headers = {'x-apikey': api_key, 'accept': 'application/json'}
+    url = API_URL.format(file_id)
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         return response.json()
     return None
 
-
-def get_abuseipdb_report(ip_address):
-    querystring = {"ipAddress": ip_address, "maxAgeInDays": "90", "verbose": True}
-    headers = {"Accept": "application/json", "Key": ABUSEIPDB_API_KEY}
-    response = requests.get(ABUSEIPDB_API_URL, headers=headers, params=querystring)
-    if response.status_code == 200:
-        return response.json()
-    return None
-
-
 def main(input_file, output_file):
-    with open(input_file, "r") as infile:
-        ip_addresses = infile.read().splitlines()
-
-    results = []
-    num_keys = len(VIRUSTOTAL_API_KEYS)
-
-    for index, ip_address in enumerate(
-        tqdm(ip_addresses, desc="Processing IP addresses")
-    ):
-        api_key = VIRUSTOTAL_API_KEYS[index % num_keys]
-        vt_result = get_virus_total_report(ip_address, api_key)
-        abuseipdb_result = get_abuseipdb_report(ip_address)
-
-        if vt_result and "data" in vt_result and "attributes" in vt_result["data"]:
-            attributes = vt_result["data"]["attributes"]
-            hits = attributes.get("last_analysis_stats", {}).get("malicious", "N/A")
-            asn = attributes.get("asn", "N/A")
-        else:
-            hits = "N/A"
-            asn = "N/A"
-
-        if abuseipdb_result and "data" in abuseipdb_result:
-            usage_type = abuseipdb_result["data"].get("usageType", "N/A")
-            isp = abuseipdb_result["data"].get("isp", "N/A")
-            country = abuseipdb_result["data"].get("countryName", "N/A")
-            domain = abuseipdb_result["data"].get("domain", "N/A")
-        else:
-            usage_type = "N/A"
-            isp = "N/A"
-            country = "N/A"
-            domain = "N/A"
-
-        results.append([ip_address, asn, hits, usage_type, isp, country, domain])
-
-        time.sleep(RATELIMIT_DELAY)
-
-    with open(output_file, "w", newline="") as outfile:
+    with open(input_file, 'r') as infile, open(output_file, 'w', newline='') as outfile:
+        file_ids = [get_sha256_from_string(line.strip()) for line in infile.readlines()]
         writer = csv.writer(outfile)
-        writer.writerow(
-            ["IP Address", "ASN", "Hits", "Usage Type", "ISP", "Country", "Domain"]
-        )
-        writer.writerows(results)
+        writer.writerow(['MD5', 'SHA1', 'SHA256', 'Hits', 'MeaningfulName', 'Filenames', 'Sandbox Results'])
 
+        num_keys = len(API_KEYS)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Fetch and process IP address reports from VirusTotal and AbuseIPDB."
-    )
-    parser.add_argument(
-        "-in",
-        "--input",
-        required=True,
-        help="Path to the input file containing IP addresses.",
-    )
-    parser.add_argument(
-        "-out", "--output", required=True, help="Path to the output CSV file."
-    )
+        for index, file_id in enumerate(tqdm(file_ids, desc="Processing hash/es")):
+            api_key = API_KEYS[index % num_keys]  # Rotate API keys using modulo
+            result = get_virus_total_report(file_id, api_key)
+            if result and 'data' in result and 'attributes' in result['data']:
+                attributes = result['data']['attributes']
+                last_analysis_results = attributes.get('last_analysis_results', {})
+
+                filename_str = ' | '.join([name for name in attributes.get('names', 'N/A')])
+                md5 = attributes.get('md5', 'N/A')
+                sha1 = attributes.get('sha1', 'N/A')
+                sha256 = attributes.get('sha256', 'N/A')
+                meaningful_name = attributes.get('meaningful_name', 'N/A')
+                hits = attributes.get('last_analysis_stats', {}).get('malicious', 'N/A')
+                analysis_results_str = ' | '.join([
+                        analysis['result']
+                        for vendor, analysis in last_analysis_results.items()
+                        if analysis['result'] is not None
+                ])
+                writer.writerow([md5, sha1, sha256, hits, meaningful_name, filename_str, analysis_results_str])
+            else:
+                continue
+
+            time.sleep(DELAY_BETWEEN_REQUESTS)  # Adjust delay to respect rate limits
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Process hash values and retrieve VirusTotal reports.')
+    parser.add_argument('-in', '--input', required=True, help='Path to the input file containing hash values.')
+    parser.add_argument('-out', '--output', required=True, help='Path to the output CSV file.')
+
     args = parser.parse_args()
-
     main(args.input, args.output)
